@@ -142,6 +142,25 @@ describe("generateTypes edge cases", () => {
     );
   });
 
+  it("should preserve both flat and dotted declarations when names conflict by prefix", () => {
+    const result = genTypes({
+      files: { description: "Flat files tool", inputSchema: null },
+      "files.read": { description: "Read file", inputSchema: null }
+    });
+
+    expect(result).toContain("\tfiles: {");
+    expect(result).toContain("\t\t/**");
+    expect(result).toContain("\t\t * Flat files tool");
+    expect(result).toContain(
+      "\t\t$call: (input: FilesInput) => Promise<FilesOutput>;"
+    );
+    expect(result).toContain("\t\t/**");
+    expect(result).toContain("\t\t * Read file");
+    expect(result).toContain(
+      "\t\tread: (input: FilesReadInput) => Promise<FilesReadOutput>;"
+    );
+  });
+
   it("should handle null inputSchema gracefully", () => {
     const result = genTypes({
       broken: { description: "Broken tool", inputSchema: null }

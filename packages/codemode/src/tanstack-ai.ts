@@ -51,7 +51,12 @@ import {
   toPascalCase,
   escapeJsDoc
 } from "./utils";
-import { createDeclTree, emitDeclTree, insertDecl } from "./type-tree";
+import {
+  countDeclNodes,
+  createDeclTree,
+  emitDeclTree,
+  insertDecl
+} from "./type-tree";
 
 export type { CreateCodeToolOptions, CodeInput, CodeOutput } from "./shared";
 export { DEFAULT_DESCRIPTION, normalizeProviders } from "./shared";
@@ -162,7 +167,7 @@ export function generateTypes(
     }
   }
 
-  const availableTools = `\ndeclare const ${namespace}: {${declTree.size ? `\n${emitDeclTree(declTree)}\n` : ""}}`;
+  const availableTools = `\ndeclare const ${namespace}: {${countDeclNodes(declTree) ? `\n${emitDeclTree(declTree)}\n` : ""}}`;
 
   return `
 ${availableTypes}
@@ -339,7 +344,7 @@ function generateTypesFromRecord(
     );
   }
 
-  const availableTools = `\ndeclare const ${namespace}: {${declTree.size ? `\n${emitDeclTree(declTree)}\n` : ""}}`;
+  const availableTools = `\ndeclare const ${namespace}: {${countDeclNodes(declTree) ? `\n${emitDeclTree(declTree)}\n` : ""}}`;
 
   return `
 ${availableTypes}

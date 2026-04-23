@@ -7,7 +7,12 @@ import {
   escapeStringLiteral,
   quoteProp
 } from "./utils";
-import { createDeclTree, emitDeclTree, insertDecl } from "./type-tree";
+import {
+  countDeclNodes,
+  createDeclTree,
+  emitDeclTree,
+  insertDecl
+} from "./type-tree";
 
 export interface ConversionContext {
   root: JSONSchema7;
@@ -397,7 +402,7 @@ export function generateTypesFromJsonSchema(
     }
   }
 
-  const availableTools = `\ndeclare const codemode: {${declTree.size ? `\n${emitDeclTree(declTree)}\n` : ""}}`;
+  const availableTools = `\ndeclare const codemode: {${countDeclNodes(declTree) ? `\n${emitDeclTree(declTree)}\n` : ""}}`;
 
   return `
 ${availableTypes}

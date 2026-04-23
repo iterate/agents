@@ -8,7 +8,12 @@ import {
   toPascalCase,
   escapeJsDoc
 } from "./utils";
-import { createDeclTree, emitDeclTree, insertDecl } from "./type-tree";
+import {
+  countDeclNodes,
+  createDeclTree,
+  emitDeclTree,
+  insertDecl
+} from "./type-tree";
 import {
   jsonSchemaToTypeString,
   type ConversionContext
@@ -258,7 +263,7 @@ export function generateTypes(
     }
   }
 
-  const availableTools = `\ndeclare const ${namespace}: {${declTree.size ? `\n${emitDeclTree(declTree)}\n` : ""}}`;
+  const availableTools = `\ndeclare const ${namespace}: {${countDeclNodes(declTree) ? `\n${emitDeclTree(declTree)}\n` : ""}}`;
 
   return `
 ${availableTypes}

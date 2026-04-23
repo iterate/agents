@@ -1,51 +1,93 @@
 import { quoteProp } from "./utils";
 
-export type DeclTree = Map<string, DeclTree | string>;
+export interface DeclNode {
+  self?: string;
+  children: Map<string, DeclNode>;
+}
 
-export function createDeclTree(): DeclTree {
-  return new Map();
+export function createDeclTree(): DeclNode {
+  return { children: new Map() };
+}
+
+export function countDeclNodes(tree: DeclNode): number {
+  let count = 0;
+  for (const node of tree.children.values()) {
+    count += 1;
+    count += countDeclNodes(node);
+  }
+  return count;
 }
 
 export function insertDecl(
-  tree: DeclTree,
+  tree: DeclNode,
   path: string[],
   leafDecl: string
 ): void {
   let current = tree;
-  for (let i = 0; i < path.length - 1; i++) {
+  for (let i = 0; i < path.length; i++) {
     const part = path[i]!;
-    const existing = current.get(part);
-    if (existing instanceof Map) {
-      current = existing;
-    } else {
-      const next: DeclTree = new Map();
-      current.set(part, next);
-      current = next;
+    let child = current.children.get(part);
+    if (!child) {
+      child = { children: new Map() };
+      current.children.set(part, child);
     }
+    if (i === path.length - 1) {
+      child.self = leafDecl;
+    }
+    current = child;
   }
-  current.set(path[path.length - 1]!, leafDecl);
 }
 
-export function emitDeclTree(tree: DeclTree, indent = "\t"): string {
+function emitLeaf(leafDecl: string, indent: string, prop: string): string[] {
   const lines: string[] = [];
-  for (const [key, value] of tree.entries()) {
-    const prop = quoteProp(key);
-    if (typeof value === "string") {
-      const leafLines = value.split("\n");
-      for (const line of leafLines) {
-        if (line.includes("__PROP__")) {
-          lines.push(`${indent}${line.trimStart().replace("__PROP__", prop)}`);
-        } else if (line.startsWith("\t")) {
-          lines.push(`${indent}${line.slice(1)}`);
-        } else {
-          lines.push(line);
-        }
-      }
+  for (const line of leafDecl.split("\n")) {
+    if (line.includes("__PROP__")) {
+      lines.push(`${indent}${line.trimStart().replace("__PROP__", prop)}`);
+    } else if (line.startsWith("\t")) {
+      lines.push(`${indent}${line.slice(1)}`);
     } else {
-      lines.push(`${indent}${prop}: {`);
-      lines.push(emitDeclTree(value, indent + "\t"));
-      lines.push(`${indent}};`);
+      lines.push(line);
     }
+  }
+  return lines;
+}
+
+export function emitDeclTree(tree: DeclNode, indent = "\t"): string {
+  const lines: string[] = [];
+  for (const [key, node] of tree.children.entries()) {
+    const prop = quoteProp(key);
+    if (node.self && node.children.size === 0) {
+      lines.push(...emitLeaf(node.self, indent, prop));
+      continue;
+    }
+
+    if (!node.self && node.children.size > 0) {
+      lines.push(`${indent}${prop}: {`);
+      const childText = emitDeclTree(node, indent + "\t");
+      if (childText) lines.push(childText);
+      lines.push(`${indent}};`);
+      continue;
+    }
+
+    lines.push(`${indent}${prop}: {`);
+    lines.push(...emitLeaf(node.self!, indent + "\t", quoteProp("$call")));
+    for (const [childKey, childNode] of node.children.entries()) {
+      const childProp = quoteProp(childKey);
+      if (childNode.self && childNode.children.size === 0) {
+        lines.push(...emitLeaf(childNode.self, indent + "\t", childProp));
+        continue;
+      }
+      lines.push(`${indent}\t${childProp}: {`);
+      if (childNode.self) {
+        lines.push(
+          ...emitLeaf(childNode.self, indent + "\t\t", quoteProp("$call"))
+        );
+      }
+      const nestedChildText = emitDeclTree(childNode, indent + "\t\t");
+      if (nestedChildText) lines.push(nestedChildText);
+      lines.push(`${indent}\t};`);
+    }
+    lines.push(`${indent}};`);
   }
   return lines.join("\n");
 }

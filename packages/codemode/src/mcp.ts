@@ -6,7 +6,7 @@ import {
   generateTypesFromJsonSchema,
   type JsonSchemaToolDescriptors
 } from "./json-schema-types";
-import { sanitizeToolName } from "./utils";
+import { sanitizeToolPath } from "./utils";
 import type { Executor } from "./executor";
 
 import type { JSONSchema7 } from "json-schema";
@@ -175,7 +175,7 @@ export async function codeMcpServer(
       }
     }
     const args = parts.length > 0 ? `{ ${parts.join(", ")} }` : "{}";
-    example = `Example: async () => { const r = await codemode.${sanitizeToolName(firstTool.name)}(${args}); return r; }`;
+    example = `Example: async () => { const r = await codemode.${sanitizeToolPath(firstTool.name)}(${args}); return r; }`;
   }
 
   const codeDescription = (description ?? CODE_DESCRIPTION)
