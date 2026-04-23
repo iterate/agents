@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { sanitizeToolName } from "../utils";
+import { sanitizeToolName, sanitizeToolPath } from "../utils";
 
 describe("sanitizeToolName", () => {
   it("should replace hyphens with underscores", () => {
@@ -42,5 +42,15 @@ describe("sanitizeToolName", () => {
     expect(sanitizeToolName("getWeather")).toBe("getWeather");
     expect(sanitizeToolName("_private")).toBe("_private");
     expect(sanitizeToolName("$jquery")).toBe("$jquery");
+  });
+});
+
+describe("sanitizeToolPath", () => {
+  it("should sanitize dotted paths segment-by-segment", () => {
+    expect(sanitizeToolPath("foo-bar.baz-qux")).toBe("foo_bar.baz_qux");
+  });
+
+  it("should preserve nesting dots", () => {
+    expect(sanitizeToolPath("bla.bla.doIt")).toBe("bla.bla.doIt");
   });
 });

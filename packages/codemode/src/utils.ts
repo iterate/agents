@@ -95,6 +95,14 @@ export function sanitizeToolName(name: string): string {
   return sanitized;
 }
 
+export function sanitizeToolPath(name: string): string {
+  return name
+    .split(".")
+    .filter(Boolean)
+    .map((segment) => sanitizeToolName(segment))
+    .join(".");
+}
+
 export function toPascalCase(str: string) {
   return str
     .replace(/_([a-z])/g, (_, letter) => letter.toUpperCase())
