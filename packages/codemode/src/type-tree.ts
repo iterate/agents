@@ -42,7 +42,10 @@ function emitLeaf(leafDecl: string, indent: string, prop: string): string[] {
   const lines: string[] = [];
   for (const line of leafDecl.split("\n")) {
     if (line.includes("__PROP__")) {
-      lines.push(`${indent}${line.trimStart().replace("__PROP__", prop)}`);
+      const trimmed = line.trimStart();
+      const idx = trimmed.indexOf("__PROP__");
+      const replaced = `${trimmed.slice(0, idx)}${prop}${trimmed.slice(idx + "__PROP__".length)}`;
+      lines.push(`${indent}${replaced}`);
     } else if (line.startsWith("\t")) {
       lines.push(`${indent}${line.slice(1)}`);
     } else {

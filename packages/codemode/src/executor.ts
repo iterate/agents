@@ -258,7 +258,7 @@ export class DynamicWorkerExecutor implements Executor {
         return (
           `    const ${p.name} = (() => {\n` +
           `      const make = (path = []) => new Proxy(async () => {}, {\n` +
-          `        get: (_, key) => typeof key === "string" ? make([...path, key]) : undefined,\n` +
+          `        get: (_, key) => typeof key === "string" ? (key === "$call" ? make(path) : make([...path, key])) : undefined,\n` +
           `        apply: async (_, __, args) => {\n` +
           `          const resJson = await __dispatchers.${p.name}.call(path.join("."), JSON.stringify(args));\n` +
           `          const data = JSON.parse(resJson);\n` +
@@ -273,7 +273,7 @@ export class DynamicWorkerExecutor implements Executor {
       return (
         `    const ${p.name} = (() => {\n` +
         `      const make = (path = []) => new Proxy(async () => {}, {\n` +
-        `        get: (_, key) => typeof key === "string" ? make([...path, key]) : undefined,\n` +
+        `        get: (_, key) => typeof key === "string" ? (key === "$call" ? make(path) : make([...path, key])) : undefined,\n` +
         `        apply: async (_, __, args) => {\n` +
         `          const resJson = await __dispatchers.${p.name}.call(path.join("."), JSON.stringify(args[0] ?? {}));\n` +
         `          const data = JSON.parse(resJson);\n` +

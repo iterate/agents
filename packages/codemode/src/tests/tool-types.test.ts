@@ -161,6 +161,16 @@ describe("generateTypes edge cases", () => {
     );
   });
 
+  it("should preserve double dollar signs in generated property names", () => {
+    const result = genTypes({
+      $$ref: { description: "Dollar ref", inputSchema: null }
+    });
+
+    expect(result).toContain(
+      "$$ref: (input: $$refInput) => Promise<$$refOutput>;"
+    );
+  });
+
   it("should handle null inputSchema gracefully", () => {
     const result = genTypes({
       broken: { description: "Broken tool", inputSchema: null }

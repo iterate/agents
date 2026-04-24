@@ -43,6 +43,10 @@ describe("sanitizeToolName", () => {
     expect(sanitizeToolName("_private")).toBe("_private");
     expect(sanitizeToolName("$jquery")).toBe("$jquery");
   });
+
+  it("should preserve double dollar signs", () => {
+    expect(sanitizeToolName("$$ref")).toBe("$$ref");
+  });
 });
 
 describe("sanitizeToolPath", () => {
