@@ -350,9 +350,7 @@ export function generateTypesFromJsonSchema(
 
   for (const [toolName, tool] of Object.entries(tools)) {
     const safePath = sanitizeToolPath(toolName);
-    const pathParts = safePath
-      ? safePath.split(".")
-      : [sanitizeToolName(toolName)];
+    const pathParts = safePath.split(".");
     const flatSafeName = pathParts.join("_");
     const typeName = toPascalCase(flatSafeName);
 

@@ -93,9 +93,7 @@ export function generateTypes(
 
   for (const tool of tools) {
     const safePath = sanitizeToolPath(tool.name);
-    const pathParts = safePath
-      ? safePath.split(".")
-      : [sanitizeToolName(tool.name)];
+    const pathParts = safePath.split(".");
     const flatSafeName = pathParts.join("_");
     const typeName = toPascalCase(flatSafeName);
 
@@ -319,9 +317,7 @@ function generateTypesFromRecord(
 
   for (const [toolName, tool] of Object.entries(tools)) {
     const safePath = sanitizeToolPath(toolName);
-    const pathParts = safePath
-      ? safePath.split(".")
-      : [sanitizeToolName(toolName)];
+    const pathParts = safePath.split(".");
     const flatSafeName = pathParts.join("_");
     const typeName = toPascalCase(flatSafeName);
     const description =
