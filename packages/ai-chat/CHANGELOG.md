@@ -1,5 +1,41 @@
 # @cloudflare/ai-chat
 
+## 0.5.1
+
+### Patch Changes
+
+- [#1368](https://github.com/cloudflare/agents/pull/1368) [`2fe85cb`](https://github.com/cloudflare/agents/commit/2fe85cbd26a606ad719dc3c6fb8c82d73d6cbf6e) Thanks [@threepointone](https://github.com/threepointone)! - Add `isToolContinuation: boolean` to `useAgentChat()` so consumers can disambiguate a fresh user-initiated `status === "submitted"` from one driven by a server-pushed tool continuation. See [#1365](https://github.com/cloudflare/agents/issues/1365).
+
+  `status` already tracks the whole tool round-trip (`submitted` → `streaming` → `ready`) after `addToolOutput` / `addToolApprovalResponse`, on purpose — that's what [#1157](https://github.com/cloudflare/agents/issues/1157) asked for and what many loading-spinner UIs now rely on. But some consumers want a typing indicator _only_ for new user messages, not for mid-turn continuations, and previously had to inspect message history to tell them apart.
+
+  `isToolContinuation` is `true` from the moment `addToolOutput` / `addToolApprovalResponse` kicks off an auto-continuation until the continuation stream closes (or is aborted by `stop()`). It is `false` otherwise — including during cross-tab server broadcasts, which surface via `isServerStreaming` only.
+
+  ```tsx
+  const { status, isStreaming, isToolContinuation } = useAgentChat({ ... });
+
+  const isLoading = isStreaming || status === "submitted";
+  const showTypingIndicator = status === "submitted" && !isToolContinuation;
+  ```
+
+  Purely additive — no change to `status`, `isServerStreaming`, or `isStreaming` semantics.
+
+- [#1366](https://github.com/cloudflare/agents/pull/1366) [`53600d0`](https://github.com/cloudflare/agents/commit/53600d00f77523825d12c1915fcf29d0c22fe6d0) Thanks [@threepointone](https://github.com/threepointone)! - Fix `useAgentChat()` going silent while an `onToolCall` handler is running. The server's `streamText` ends the stream as soon as the model emits a client-tool call, which dropped `status` back to `ready` and `isStreaming`/`isServerStreaming` to `false` for the full duration of the client-side `tool.execute()` — often a `fetch` taking several seconds. Consumers had no single flag that covered the whole "turn in progress" window. See [#1365](https://github.com/cloudflare/agents/issues/1365).
+
+  `useAgentChat()` now treats any unresolved client-side tool call on the latest assistant message as an active server-driven phase:
+  - `isServerStreaming` is `true` from the moment the tool part appears in `input-available` (with an active handler — `onToolCall` or a deprecated `tools` entry with `execute`) until it transitions out via `addToolOutput` / `addToolResult`.
+  - `isStreaming` (`status === "streaming" || isServerStreaming`) stays `true` across the whole tool round-trip, including the gap between the model emitting the call and the server pushing its continuation.
+  - `status` is untouched — it still means "user-initiated submission awaiting a response." Tools waiting for explicit user confirmation are excluded from the busy signal (nothing is happening until the user acts).
+
+  Consumer code simplifies to:
+
+  ```tsx
+  const { isStreaming, status } = useAgentChat({ ... });
+  const isLoading = isStreaming || status === "submitted";
+  const showTypingIndicator = status === "submitted";
+  ```
+
+  No API changes. Existing code that only looked at `status` behaves the same.
+
 ## 0.5.0
 
 ### Minor Changes
