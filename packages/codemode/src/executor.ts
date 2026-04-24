@@ -318,8 +318,10 @@ export class DynamicWorkerExecutor implements Executor {
       .join("\n");
 
     // Build dispatcher map: { codemode: ToolDispatcher, state: ToolDispatcher, ... }
-    // Sanitize fn keys so raw tool names (e.g. "github.list-issues") become
-    // valid JS identifiers (e.g. "github_list_issues") on the proxy.
+    // Dotted names stay dotted here so the recursive proxy can resolve
+    // codemode.github.listIssues(...) -> "github.listIssues" at dispatch time.
+    // We still fall back to sanitizeToolName for degenerate inputs like "" or
+    // "..." so executor lookup matches the type generators' fallback path.
     const dispatchers: Record<string, ToolDispatcher> = {};
     for (const provider of providers) {
       const sanitizedFns: Record<
@@ -327,7 +329,8 @@ export class DynamicWorkerExecutor implements Executor {
         (...args: unknown[]) => Promise<unknown>
       > = {};
       for (const [name, fn] of Object.entries(provider.fns)) {
-        sanitizedFns[sanitizeToolPath(name)] = fn;
+        const safePath = sanitizeToolPath(name);
+        sanitizedFns[safePath || sanitizeToolName(name)] = fn;
       }
       dispatchers[provider.name] = new ToolDispatcher(
         sanitizedFns,

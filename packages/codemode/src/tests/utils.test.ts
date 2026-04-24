@@ -57,4 +57,9 @@ describe("sanitizeToolPath", () => {
   it("should preserve nesting dots", () => {
     expect(sanitizeToolPath("bla.bla.doIt")).toBe("bla.bla.doIt");
   });
+
+  it("should fall back to a valid identifier for empty paths", () => {
+    expect(sanitizeToolPath("")).toBe("_");
+    expect(sanitizeToolPath("...")).toBe(sanitizeToolName("..."));
+  });
 });

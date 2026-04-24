@@ -44,6 +44,8 @@ function emitLeaf(leafDecl: string, indent: string, prop: string): string[] {
     if (line.includes("__PROP__")) {
       const trimmed = line.trimStart();
       const idx = trimmed.indexOf("__PROP__");
+      // Avoid String.replace here: replacement strings treat $$ specially,
+      // which would mangle valid tool names like "$$ref".
       const replaced = `${trimmed.slice(0, idx)}${prop}${trimmed.slice(idx + "__PROP__".length)}`;
       lines.push(`${indent}${replaced}`);
     } else if (line.startsWith("\t")) {
@@ -73,6 +75,9 @@ export function emitDeclTree(tree: DeclNode, indent = "\t"): string {
     }
 
     lines.push(`${indent}${prop}: {`);
+    // When a tool name is both callable itself and a namespace prefix (for
+    // example "files" and "files.read"), we expose the callable leaf as
+    // $call so both shapes remain representable in ambient object types.
     lines.push(...emitLeaf(node.self!, indent + "\t", quoteProp("$call")));
     for (const [childKey, childNode] of node.children.entries()) {
       const childProp = quoteProp(childKey);

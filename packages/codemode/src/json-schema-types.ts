@@ -341,6 +341,10 @@ export type JsonSchemaToolDescriptors = Record<
 export function generateTypesFromJsonSchema(
   tools: JsonSchemaToolDescriptors
 ): string {
+  // Tool names can be dotted paths, so the ambient declarations need to become
+  // a nested object tree: e.g. "files.read" => codemode.files.read(...).
+  // We keep a tree first so flat names like "files" can also coexist with
+  // dotted descendants like "files.read" in the emitted types.
   const declTree = createDeclTree();
   let availableTypes = "";
 

@@ -96,11 +96,13 @@ export function sanitizeToolName(name: string): string {
 }
 
 export function sanitizeToolPath(name: string): string {
-  return name
+  const sanitized = name
     .split(".")
     .filter(Boolean)
     .map((segment) => sanitizeToolName(segment))
     .join(".");
+
+  return sanitized || sanitizeToolName(name);
 }
 
 export function toPascalCase(str: string) {
