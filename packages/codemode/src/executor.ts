@@ -7,7 +7,7 @@
 
 import { RpcTarget } from "cloudflare:workers";
 import { normalizeCode } from "./normalize";
-import { sanitizeToolName } from "./utils";
+import { sanitizeToolPath } from "./utils";
 import type { ToolDescriptors } from "./tool-types";
 import type { ToolSet } from "ai";
 
@@ -252,29 +252,37 @@ export class DynamicWorkerExecutor implements Executor {
       seenNames.add(provider.name);
     }
 
-    // Generate a Proxy global for each provider namespace.
+    // Generate a recursive Proxy global for each provider namespace.
     const proxyInits = providers.map((p) => {
       if (p.positionalArgs) {
         return (
-          `    const ${p.name} = new Proxy({}, {\n` +
-          `      get: (_, toolName) => async (...args) => {\n` +
-          `        const resJson = await __dispatchers.${p.name}.call(String(toolName), JSON.stringify(args));\n` +
-          `        const data = JSON.parse(resJson);\n` +
-          `        if (data.error) throw new Error(data.error);\n` +
-          `        return data.result;\n` +
-          `      }\n` +
-          `    });`
+          `    const ${p.name} = (() => {\n` +
+          `      const make = (path = []) => new Proxy(async () => {}, {\n` +
+          `        get: (_, key) => typeof key === "string" ? (key === "$call" ? make(path) : make([...path, key])) : undefined,\n` +
+          `        apply: async (_, __, args) => {\n` +
+          `          const resJson = await __dispatchers.${p.name}.call(path.join("."), JSON.stringify(args));\n` +
+          `          const data = JSON.parse(resJson);\n` +
+          `          if (data.error) throw new Error(data.error);\n` +
+          `          return data.result;\n` +
+          `        }\n` +
+          `      });\n` +
+          `      return make();\n` +
+          `    })();`
         );
       }
       return (
-        `    const ${p.name} = new Proxy({}, {\n` +
-        `      get: (_, toolName) => async (args) => {\n` +
-        `        const resJson = await __dispatchers.${p.name}.call(String(toolName), JSON.stringify(args ?? {}));\n` +
-        `        const data = JSON.parse(resJson);\n` +
-        `        if (data.error) throw new Error(data.error);\n` +
-        `        return data.result;\n` +
-        `      }\n` +
-        `    });`
+        `    const ${p.name} = (() => {\n` +
+        `      const make = (path = []) => new Proxy(async () => {}, {\n` +
+        `        get: (_, key) => typeof key === "string" ? (key === "$call" ? make(path) : make([...path, key])) : undefined,\n` +
+        `        apply: async (_, __, args) => {\n` +
+        `          const resJson = await __dispatchers.${p.name}.call(path.join("."), JSON.stringify(args[0] ?? {}));\n` +
+        `          const data = JSON.parse(resJson);\n` +
+        `          if (data.error) throw new Error(data.error);\n` +
+        `          return data.result;\n` +
+        `        }\n` +
+        `      });\n` +
+        `      return make();\n` +
+        `    })();`
       );
     });
 
@@ -310,8 +318,10 @@ export class DynamicWorkerExecutor implements Executor {
       .join("\n");
 
     // Build dispatcher map: { codemode: ToolDispatcher, state: ToolDispatcher, ... }
-    // Sanitize fn keys so raw tool names (e.g. "github.list-issues") become
-    // valid JS identifiers (e.g. "github_list_issues") on the proxy.
+    // Dotted names stay dotted here so the recursive proxy can resolve
+    // codemode.github.listIssues(...) -> "github.listIssues" at dispatch time.
+    // sanitizeToolPath() also handles degenerate names the same way as the type
+    // generators, so executor lookup stays aligned with the emitted paths.
     const dispatchers: Record<string, ToolDispatcher> = {};
     for (const provider of providers) {
       const sanitizedFns: Record<
@@ -319,7 +329,7 @@ export class DynamicWorkerExecutor implements Executor {
         (...args: unknown[]) => Promise<unknown>
       > = {};
       for (const [name, fn] of Object.entries(provider.fns)) {
-        sanitizedFns[sanitizeToolName(name)] = fn;
+        sanitizedFns[sanitizeToolPath(name)] = fn;
       }
       dispatchers[provider.name] = new ToolDispatcher(
         sanitizedFns,

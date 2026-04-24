@@ -98,6 +98,22 @@ describe("DynamicWorkerExecutor", () => {
     expect(add).toHaveBeenCalledWith({ a: 3, b: 4 });
   });
 
+  it("should call dotted tool names via nested proxy access", async () => {
+    const doIt = vi.fn(async (...args: unknown[]) => {
+      const input = args[0] as Record<string, unknown>;
+      return `done:${String(input.x)}`;
+    });
+    const executor = new DynamicWorkerExecutor({ loader: env.LOADER });
+
+    const result = await executor.execute(
+      'async () => await codemode.bla.bla.doIt({ x: "hi" })',
+      [codemodeProvider({ "bla.bla.doIt": doIt })]
+    );
+
+    expect(result.result).toBe("done:hi");
+    expect(doIt).toHaveBeenCalledWith({ x: "hi" });
+  });
+
   it("should handle multiple sequential tool calls", async () => {
     const getWeather = vi.fn(async () => ({ temp: 72 }));
     const searchWeb = vi.fn(async (...args: unknown[]) => {
@@ -214,6 +230,45 @@ describe("DynamicWorkerExecutor", () => {
       [codemodeProvider(fns)]
     );
     expect(result.result).toEqual({ key: "api-key-123" });
+  });
+
+  it("should call dotted tool names with positional args via nested proxy access", async () => {
+    const readFile = vi.fn(async (...args: unknown[]) => {
+      return `read:${String(args[0])}`;
+    });
+    const executor = new DynamicWorkerExecutor({ loader: env.LOADER });
+
+    const result = await executor.execute(
+      'async () => await state.fs.readFile("/tmp/x")',
+      [
+        {
+          name: "state",
+          fns: { "fs.readFile": readFile },
+          positionalArgs: true
+        }
+      ]
+    );
+
+    expect(result.result).toBe("read:/tmp/x");
+    expect(readFile).toHaveBeenCalledWith("/tmp/x");
+  });
+
+  it("should support $call as alias for a prefix-conflicting dotted tool", async () => {
+    const files = vi.fn(async (...args: unknown[]) => {
+      const input = args[0] as Record<string, unknown>;
+      return `files:${String(input.mode)}`;
+    });
+    const read = vi.fn(async () => "read");
+    const executor = new DynamicWorkerExecutor({ loader: env.LOADER });
+
+    const result = await executor.execute(
+      'async () => ({ base: await codemode.files.$call({ mode: "x" }), read: await codemode.files.read({}) })',
+      [codemodeProvider({ files, "files.read": read })]
+    );
+
+    expect(result.result).toEqual({ base: "files:x", read: "read" });
+    expect(files).toHaveBeenCalledWith({ mode: "x" });
+    expect(read).toHaveBeenCalledWith({});
   });
 
   it("should make custom modules importable in sandbox code", async () => {

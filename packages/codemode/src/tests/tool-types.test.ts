@@ -104,6 +104,73 @@ describe("generateTypes edge cases", () => {
     );
   });
 
+  it("should generate nested declarations for dotted tool names", () => {
+    const tools: ToolDescriptors = {
+      "bla.bla.doIt": {
+        description: "Do it",
+        inputSchema: fromJSONSchema({
+          type: "object",
+          properties: {
+            x: { type: "string" }
+          },
+          required: ["x"]
+        }),
+        outputSchema: fromJSONSchema({ type: "string" })
+      }
+    };
+
+    const result = generateTypes(tools);
+
+    expect(result).toBe(
+      [
+        "type BlaBlaDoItInput = {",
+        "    x: string;",
+        "}",
+        "type BlaBlaDoItOutput = string",
+        "",
+        "declare const codemode: {",
+        "\tbla: {",
+        "\t\tbla: {",
+        "\t\t\t/**",
+        "\t\t\t * Do it",
+        "\t\t\t */",
+        "\t\t\tdoIt: (input: BlaBlaDoItInput) => Promise<BlaBlaDoItOutput>;",
+        "\t\t};",
+        "\t};",
+        "}"
+      ].join("\n")
+    );
+  });
+
+  it("should preserve both flat and dotted declarations when names conflict by prefix", () => {
+    const result = genTypes({
+      files: { description: "Flat files tool", inputSchema: null },
+      "files.read": { description: "Read file", inputSchema: null }
+    });
+
+    expect(result).toContain("\tfiles: {");
+    expect(result).toContain("\t\t/**");
+    expect(result).toContain("\t\t * Flat files tool");
+    expect(result).toContain(
+      "\t\t$call: (input: FilesInput) => Promise<FilesOutput>;"
+    );
+    expect(result).toContain("\t\t/**");
+    expect(result).toContain("\t\t * Read file");
+    expect(result).toContain(
+      "\t\tread: (input: FilesReadInput) => Promise<FilesReadOutput>;"
+    );
+  });
+
+  it("should preserve double dollar signs in generated property names", () => {
+    const result = genTypes({
+      $$ref: { description: "Dollar ref", inputSchema: null }
+    });
+
+    expect(result).toContain(
+      "$$ref: (input: $$refInput) => Promise<$$refOutput>;"
+    );
+  });
+
   it("should handle null inputSchema gracefully", () => {
     const result = genTypes({
       broken: { description: "Broken tool", inputSchema: null }
@@ -213,12 +280,10 @@ describe("generateTypes edge cases", () => {
         "\t * Good first",
         "\t */",
         "\tgood1: (input: Good1Input) => Promise<Good1Output>;",
-        "",
         "\t/**",
         "\t * Bad tool",
         "\t */",
         "\tbad: (input: BadInput) => Promise<BadOutput>;",
-        "",
         "\t/**",
         "\t * Good second",
         "\t */",

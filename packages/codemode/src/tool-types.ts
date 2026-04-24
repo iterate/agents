@@ -2,7 +2,18 @@ import { asSchema } from "ai";
 import type { ZodType } from "zod";
 import type { ToolSet } from "ai";
 import type { JSONSchema7 } from "json-schema";
-import { sanitizeToolName, toPascalCase, escapeJsDoc } from "./utils";
+import {
+  sanitizeToolName,
+  sanitizeToolPath,
+  toPascalCase,
+  escapeJsDoc
+} from "./utils";
+import {
+  countDeclNodes,
+  createDeclTree,
+  emitDeclTree,
+  insertDecl
+} from "./type-tree";
 import {
   jsonSchemaToTypeString,
   type ConversionContext
@@ -190,12 +201,14 @@ export function generateTypes(
   tools: ToolDescriptors | ToolSet,
   namespace = "codemode"
 ): string {
-  let availableTools = "";
+  const declTree = createDeclTree();
   let availableTypes = "";
 
   for (const [toolName, tool] of Object.entries(tools)) {
-    const safeName = sanitizeToolName(toolName);
-    const typeName = toPascalCase(safeName);
+    const safePath = sanitizeToolPath(toolName);
+    const pathParts = safePath.split(".");
+    const flatSafeName = pathParts.join("_");
+    const typeName = toPascalCase(flatSafeName);
 
     try {
       const inputSchema =
@@ -231,20 +244,24 @@ export function generateTypes(
       }
 
       const jsdocBody = jsdocLines.map((l) => `\t * ${l}`).join("\n");
-      availableTools += `\n\t/**\n${jsdocBody}\n\t */`;
-      availableTools += `\n\t${safeName}: (input: ${typeName}Input) => Promise<${typeName}Output>;`;
-      availableTools += "\n";
+      insertDecl(
+        declTree,
+        pathParts,
+        `\t/**\n${jsdocBody}\n\t */\n\t__PROP__: (input: ${typeName}Input) => Promise<${typeName}Output>;`
+      );
     } catch {
       availableTypes += `\ntype ${typeName}Input = unknown`;
       availableTypes += `\ntype ${typeName}Output = unknown`;
 
-      availableTools += `\n\t/**\n\t * ${escapeJsDoc(toolName)}\n\t */`;
-      availableTools += `\n\t${safeName}: (input: ${typeName}Input) => Promise<${typeName}Output>;`;
-      availableTools += "\n";
+      insertDecl(
+        declTree,
+        pathParts,
+        `\t/**\n\t * ${escapeJsDoc(toolName)}\n\t */\n\t__PROP__: (input: ${typeName}Input) => Promise<${typeName}Output>;`
+      );
     }
   }
 
-  availableTools = `\ndeclare const ${namespace}: {${availableTools}}`;
+  const availableTools = `\ndeclare const ${namespace}: {${countDeclNodes(declTree) ? `\n${emitDeclTree(declTree)}\n` : ""}}`;
 
   return `
 ${availableTypes}
