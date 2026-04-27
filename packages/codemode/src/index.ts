@@ -16,4 +16,3 @@ export {
 } from "./json-schema-types";
 export { normalizeCode } from "./normalize";
 export { resolveProvider } from "./resolve";
-export { dynamicTools, type DynamicToolsOptions } from "./dynamic-tools";

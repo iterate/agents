@@ -19,10 +19,12 @@ import type { ToolProvider, ToolProviderTypes } from "./executor";
  * notes, usage conventions, or any other guidance that helps the model produce
  * sensible calls.
  *
- * `types` may also be supplied as a function so expensive documentation can be
- * fetched only when prompt material is actually being assembled. This avoids
- * paying remote discovery costs for low-level executor usage, where the runtime
- * never consults the prompt block at all.
+ * We intentionally keep this field synchronous in the minimal dynamic-provider
+ * design. Tool descriptions are assembled eagerly by the surrounding codemode
+ * integrations, and trying to sneak lazy/async prompt material through that
+ * path made the implementation much more invasive than the runtime feature
+ * justified. If we ever want remote discovery-backed docs, that should likely
+ * be a separate API with its own explicit lifecycle.
  */
 export interface DynamicToolsOptions {
   /**

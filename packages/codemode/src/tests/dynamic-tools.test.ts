@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dynamicTools } from "../dynamic-tools";
+import { dynamicTools } from "../dynamic";
 
 describe("dynamicTools", () => {
   it("should build a dynamic provider with runtime hook", async () => {
