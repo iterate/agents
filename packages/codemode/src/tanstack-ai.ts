@@ -34,7 +34,9 @@ import type {
   ToolProvider,
   ToolProviderTools,
   ResolvedProvider,
-  SimpleToolRecord
+  SimpleToolRecord,
+  DynamicToolProvider,
+  StaticToolProvider
 } from "./executor";
 import { normalizeCode } from "./normalize";
 import { filterTools, extractFns } from "./resolve";
@@ -45,17 +47,13 @@ import {
   normalizeProviders
 } from "./shared";
 import { jsonSchemaToType } from "./json-schema-types";
-import {
-  sanitizeToolName,
-  sanitizeToolPath,
-  toPascalCase,
-  escapeJsDoc
-} from "./utils";
+import { sanitizeToolPath, toPascalCase, escapeJsDoc } from "./utils";
 import {
   countDeclNodes,
   createDeclTree,
   emitDeclTree,
-  insertDecl
+  insertDecl,
+  insertDeclTree
 } from "./type-tree";
 
 export type { CreateCodeToolOptions, CodeInput, CodeOutput } from "./shared";
@@ -68,27 +66,19 @@ const codeSchema = z.object({
     .meta({ description: "JavaScript async arrow function to execute" })
 });
 
-/**
- * Convert a TanStack AI schema (StandardJSONSchema or plain JSONSchema) to
- * a JSON Schema 7 object usable by the core type generator.
- */
 function toJsonSchema7(schema: unknown): JSONSchema7 | null {
   const converted = convertSchemaToJsonSchema(schema as TanStackJSONSchema);
   if (!converted) return null;
   return converted as unknown as JSONSchema7;
 }
 
-/**
- * Generate TypeScript type definitions from an array of TanStack AI tools.
- *
- * Uses the tools' schemas (Zod, ArkType, JSON Schema, etc.) to produce type
- * declarations that the LLM sees in the code-tool description.
- */
 export function generateTypes(
   tools: TanStackTool[],
   namespace = "codemode"
 ): string {
   const declTree = createDeclTree();
+  const namespacePath = sanitizeToolPath(namespace).split(".");
+  const rootTree = createDeclTree();
   let availableTypes = "";
 
   for (const tool of tools) {
@@ -165,7 +155,8 @@ export function generateTypes(
     }
   }
 
-  const availableTools = `\ndeclare const ${namespace}: {${countDeclNodes(declTree) ? `\n${emitDeclTree(declTree)}\n` : ""}}`;
+  insertDeclTree(rootTree, namespacePath.slice(1), declTree);
+  const availableTools = `\ndeclare const ${namespacePath[0]}: {${countDeclNodes(rootTree) ? `\n${emitDeclTree(rootTree)}\n` : ""}}`;
 
   return `
 ${availableTypes}
@@ -173,25 +164,6 @@ ${availableTools}
   `.trim();
 }
 
-/**
- * Wrap TanStack AI tools into a ToolProvider for use with `createCodeTool`.
- *
- * Converts the array-based TanStack tool format into the record-based
- * ToolProvider that the codemode executor expects.
- *
- * @example
- * ```ts
- * import { createCodeTool, tanstackTools } from "@cloudflare/codemode/tanstack-ai";
- *
- * const codeTool = createCodeTool({
- *   tools: [
- *     tanstackTools(myServerTools),
- *     tanstackTools(otherTools, "other"),
- *   ],
- *   executor,
- * });
- * ```
- */
 export function tanstackTools(
   tools: TanStackTool[],
   name?: string
@@ -216,62 +188,43 @@ export function tanstackTools(
   return { name: ns === "codemode" ? undefined : ns, tools: toolRecord, types };
 }
 
-/**
- * Create a codemode tool that allows LLMs to write and execute code
- * with access to your tools in a sandboxed environment.
- *
- * Returns a TanStack AI `ServerTool` compatible with `chat()` from `@tanstack/ai`.
- *
- * @example Basic usage
- * ```ts
- * const codeTool = createCodeTool({
- *   tools: [tanstackTools(myTools)],
- *   executor,
- * });
- *
- * const stream = chat({
- *   adapter: openaiText("gpt-4o"),
- *   tools: [codeTool],
- *   messages,
- * });
- * ```
- *
- * @example Multiple namespaces
- * ```ts
- * createCodeTool({
- *   tools: [
- *     tanstackTools(githubTools, "github"),
- *     tanstackTools(dbTools, "db"),
- *   ],
- *   executor,
- * });
- * ```
- */
 export function createCodeTool(options: CreateCodeToolOptions): ServerTool {
   const providers = normalizeProviders(options.tools);
-
   const typeBlocks: string[] = [];
   const resolvedProviders: ResolvedProvider[] = [];
 
   for (const provider of providers) {
     const providerName = provider.name ?? "codemode";
-    const filtered = filterTools(provider.tools);
 
+    if ("callTool" in provider) {
+      const dynamic = provider as DynamicToolProvider;
+      const types = dynamic.types;
+      if (types) typeBlocks.push(types);
+      const resolved: ResolvedProvider = {
+        name: providerName,
+        fns: {},
+        callTool: dynamic.callTool
+      };
+      if (dynamic.positionalArgs) resolved.positionalArgs = true;
+      resolvedProviders.push(resolved);
+      continue;
+    }
+
+    const staticProvider = provider as StaticToolProvider;
+    const filtered = filterTools(staticProvider.tools);
     const types =
-      provider.types ?? generateTypesFromRecord(filtered, providerName);
+      staticProvider.types ?? generateTypesFromRecord(filtered, providerName);
     typeBlocks.push(types);
 
     const resolved: ResolvedProvider = {
       name: providerName,
       fns: extractFns(filtered)
     };
-    if (provider.positionalArgs) resolved.positionalArgs = true;
+    if (staticProvider.positionalArgs) resolved.positionalArgs = true;
     resolvedProviders.push(resolved);
   }
 
   const typeBlock = typeBlocks.filter(Boolean).join("\n\n");
-  const executor = options.executor;
-
   const description = (options.description ?? DEFAULT_DESCRIPTION).replace(
     "{{types}}",
     typeBlock
@@ -285,8 +238,7 @@ export function createCodeTool(options: CreateCodeToolOptions): ServerTool {
 
   return def.server(async ({ code }) => {
     const normalizedCode = normalizeCode(code);
-
-    const executeResult = await executor.execute(
+    const executeResult = await options.executor.execute(
       normalizedCode,
       resolvedProviders
     );
@@ -304,15 +256,13 @@ export function createCodeTool(options: CreateCodeToolOptions): ServerTool {
   });
 }
 
-/**
- * Generate types from a ToolProviderTools record.
- * Falls back to the JSON Schema generator for SimpleToolRecord.
- */
 function generateTypesFromRecord(
   tools: ToolProviderTools,
   namespace: string
 ): string {
   const declTree = createDeclTree();
+  const namespacePath = sanitizeToolPath(namespace).split(".");
+  const rootTree = createDeclTree();
   let availableTypes = "";
 
   for (const [toolName, tool] of Object.entries(tools)) {
@@ -340,7 +290,8 @@ function generateTypesFromRecord(
     );
   }
 
-  const availableTools = `\ndeclare const ${namespace}: {${countDeclNodes(declTree) ? `\n${emitDeclTree(declTree)}\n` : ""}}`;
+  insertDeclTree(rootTree, namespacePath.slice(1), declTree);
+  const availableTools = `\ndeclare const ${namespacePath[0]}: {${countDeclNodes(rootTree) ? `\n${emitDeclTree(rootTree)}\n` : ""}}`;
 
   return `
 ${availableTypes}

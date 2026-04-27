@@ -2,17 +2,13 @@ import { asSchema } from "ai";
 import type { ZodType } from "zod";
 import type { ToolSet } from "ai";
 import type { JSONSchema7 } from "json-schema";
-import {
-  sanitizeToolName,
-  sanitizeToolPath,
-  toPascalCase,
-  escapeJsDoc
-} from "./utils";
+import { sanitizeToolPath, toPascalCase, escapeJsDoc } from "./utils";
 import {
   countDeclNodes,
   createDeclTree,
   emitDeclTree,
-  insertDecl
+  insertDecl,
+  insertDeclTree
 } from "./type-tree";
 import {
   jsonSchemaToTypeString,
@@ -202,6 +198,12 @@ export function generateTypes(
   namespace = "codemode"
 ): string {
   const declTree = createDeclTree();
+  // Provider namespaces can now be dotted paths too. We therefore build the
+  // tool subtree independently first, then graft that subtree under the
+  // namespace path. For example, namespace `mcp.someServer` plus tool `doIt`
+  // should produce `declare const mcp: { someServer: { doIt(...) } }`.
+  const namespacePath = sanitizeToolPath(namespace).split(".");
+  const rootTree = createDeclTree();
   let availableTypes = "";
 
   for (const [toolName, tool] of Object.entries(tools)) {
@@ -261,7 +263,8 @@ export function generateTypes(
     }
   }
 
-  const availableTools = `\ndeclare const ${namespace}: {${countDeclNodes(declTree) ? `\n${emitDeclTree(declTree)}\n` : ""}}`;
+  insertDeclTree(rootTree, namespacePath.slice(1), declTree);
+  const availableTools = `\ndeclare const ${namespacePath[0]}: {${countDeclNodes(rootTree) ? `\n${emitDeclTree(rootTree)}\n` : ""}}`;
 
   return `
 ${availableTypes}

@@ -142,6 +142,48 @@ describe("generateTypes edge cases", () => {
     );
   });
 
+  it("should generate declarations for provider documentation namespaces", () => {
+    const tools: ToolDescriptors = {
+      doIt: {
+        description: "Do it",
+        inputSchema: fromJSONSchema({
+          type: "object",
+          properties: {
+            x: { type: "string" }
+          },
+          required: ["x"]
+        }),
+        outputSchema: fromJSONSchema({ type: "string" })
+      }
+    };
+
+    const result = generateTypes(tools, "mcp.someServer");
+
+    expect(result).toBe(
+      [
+        "type DoItInput = {",
+        "    x: string;",
+        "}",
+        "type DoItOutput = string",
+        "",
+        "declare const mcp: {",
+        "\tsomeServer: {",
+        "\t\t/**",
+        "\t\t * Do it",
+        "\t\t */",
+        "\t\tdoIt: (input: DoItInput) => Promise<DoItOutput>;",
+        "\t};",
+        "}"
+      ].join("\n")
+    );
+  });
+
+  it("should not crash for empty dotted provider namespaces", () => {
+    expect(generateTypes({}, "mcp.someServer")).toBe(
+      ["declare const mcp: {}"].join("\n")
+    );
+  });
+
   it("should preserve both flat and dotted declarations when names conflict by prefix", () => {
     const result = genTypes({
       files: { description: "Flat files tool", inputSchema: null },

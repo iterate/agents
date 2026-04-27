@@ -5,7 +5,9 @@ import { generateTypes, type ToolDescriptors } from "./tool-types";
 import type {
   ToolProvider,
   ToolProviderTools,
-  ResolvedProvider
+  ResolvedProvider,
+  DynamicToolProvider,
+  StaticToolProvider
 } from "./executor";
 import { normalizeCode } from "./normalize";
 import { filterTools } from "./resolve";
@@ -81,6 +83,16 @@ export function aiTools(tools: ToolDescriptors | ToolSet): ToolProvider {
  */
 export function resolveProvider(provider: ToolProvider): ResolvedProvider {
   const name = provider.name ?? "codemode";
+  if ("callTool" in provider) {
+    const resolved: ResolvedProvider = {
+      name,
+      fns: {},
+      callTool: provider.callTool
+    };
+    if (provider.positionalArgs) resolved.positionalArgs = true;
+    return resolved;
+  }
+
   const filtered = filterTools(provider.tools);
   const resolved: ResolvedProvider = { name, fns: extractFns(filtered) };
   if (provider.positionalArgs) resolved.positionalArgs = true;
@@ -92,25 +104,38 @@ export function createCodeTool(
 ): Tool<CodeInput, CodeOutput> {
   const providers = normalizeProviders(options.tools);
 
-  // Build type block and resolved providers for each provider.
   const typeBlocks: string[] = [];
   const resolvedProviders: ResolvedProvider[] = [];
 
   for (const provider of providers) {
     const name = provider.name ?? "codemode";
-    const filtered = filterTools(provider.tools);
+
+    if ("callTool" in provider) {
+      const dynamic = provider as DynamicToolProvider;
+      const types = dynamic.types;
+      if (types) typeBlocks.push(types);
+      const resolved: ResolvedProvider = {
+        name,
+        fns: {},
+        callTool: dynamic.callTool
+      };
+      if (dynamic.positionalArgs) resolved.positionalArgs = true;
+      resolvedProviders.push(resolved);
+      continue;
+    }
+
+    const staticProvider = provider as StaticToolProvider;
+    const filtered = filterTools(staticProvider.tools);
     const types =
-      provider.types ?? generateTypes(filtered as ToolDescriptors, name);
+      staticProvider.types ?? generateTypes(filtered as ToolDescriptors, name);
     typeBlocks.push(types);
     const resolved: ResolvedProvider = { name, fns: extractFns(filtered) };
-    if (provider.positionalArgs) resolved.positionalArgs = true;
+    if (staticProvider.positionalArgs) resolved.positionalArgs = true;
     resolvedProviders.push(resolved);
   }
 
   const typeBlock = typeBlocks.filter(Boolean).join("\n\n");
-
   const executor = options.executor;
-
   const description = (options.description ?? DEFAULT_DESCRIPTION).replace(
     "{{types}}",
     typeBlock

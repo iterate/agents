@@ -24,7 +24,6 @@ declare const codemode: {
 	 * @param input.b - Second number
 	 */
 	add: (input: AddInput) => Promise<AddOutput>;
-
 	/**
 	 * Generate a greeting
 	 * @param input.name - Name to greet

@@ -19,6 +19,10 @@
     "@playwright/test": "^1.59.1",
     "@tanstack/ai": "^0.11.0",
     "ai": "^6.0.168",
+    "oxfmt": "^0.46.0",
+    "tsdown": "^0.21.9",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3",
     "vitest": "4.1.4",
     "zod": "^4.3.6"
   },
@@ -59,6 +63,11 @@
       "import": "./dist/mcp.js",
       "require": "./dist/mcp.js"
     },
+    "./dynamic": {
+      "types": "./dist/dynamic.d.ts",
+      "import": "./dist/dynamic.js",
+      "require": "./dist/dynamic.js"
+    },
     "./tanstack-ai": {
       "types": "./dist/tanstack-ai.d.ts",
       "import": "./dist/tanstack-ai.js",
@@ -67,6 +76,8 @@
   },
   "scripts": {
     "build": "tsx ./scripts/build.ts",
+    "build:standalone": "tsx ./scripts/build.ts --tsconfig ./tsconfig.standalone.json",
+    "prepare": "npm run build:standalone",
     "test": "vitest run",
     "test:e2e": "npx playwright test --config e2e/playwright.config.ts",
     "test:watch": "vitest"
