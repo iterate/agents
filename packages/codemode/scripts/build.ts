@@ -1,6 +1,10 @@
 import { execSync } from "node:child_process";
 import { build } from "tsdown";
 
+const tsconfig = process.argv.includes("--tsconfig")
+  ? process.argv[process.argv.indexOf("--tsconfig") + 1]
+  : undefined;
+
 async function main() {
   await build({
     clean: true,
@@ -12,6 +16,7 @@ async function main() {
       "src/dynamic.ts",
       "src/tanstack-ai.ts"
     ],
+    tsconfig,
     deps: {
       skipNodeModulesBundle: true,
       neverBundle: ["cloudflare:workers"]
