@@ -44,8 +44,7 @@ import {
   DEFAULT_DESCRIPTION,
   type CreateCodeToolOptions,
   type CodeOutput,
-  normalizeProviders,
-  resolveProviderTypes
+  normalizeProviders
 } from "./shared";
 import { jsonSchemaToType } from "./json-schema-types";
 import { sanitizeToolPath, toPascalCase, escapeJsDoc } from "./utils";
@@ -156,12 +155,8 @@ export function generateTypes(
     }
   }
 
-  const namespaceRoot = insertDeclTree(
-    rootTree,
-    namespacePath.slice(1),
-    declTree
-  );
-  const availableTools = `\ndeclare const ${namespacePath[0]}: {${countDeclNodes(namespaceRoot) ? `\n${emitDeclTree(namespaceRoot)}\n` : ""}}`;
+  insertDeclTree(rootTree, namespacePath.slice(1), declTree);
+  const availableTools = `\ndeclare const ${namespacePath[0]}: {${countDeclNodes(rootTree) ? `\n${emitDeclTree(rootTree)}\n` : ""}}`;
 
   return `
 ${availableTypes}
@@ -195,55 +190,53 @@ export function tanstackTools(
 
 export function createCodeTool(options: CreateCodeToolOptions): ServerTool {
   const providers = normalizeProviders(options.tools);
+  const typeBlocks: string[] = [];
+  const resolvedProviders: ResolvedProvider[] = [];
+
+  for (const provider of providers) {
+    const providerName = provider.name ?? "codemode";
+
+    if ("callTool" in provider) {
+      const dynamic = provider as DynamicToolProvider;
+      const types = dynamic.types;
+      if (types) typeBlocks.push(types);
+      const resolved: ResolvedProvider = {
+        name: providerName,
+        fns: {},
+        callTool: dynamic.callTool
+      };
+      if (dynamic.positionalArgs) resolved.positionalArgs = true;
+      resolvedProviders.push(resolved);
+      continue;
+    }
+
+    const staticProvider = provider as StaticToolProvider;
+    const filtered = filterTools(staticProvider.tools);
+    const types =
+      staticProvider.types ?? generateTypesFromRecord(filtered, providerName);
+    typeBlocks.push(types);
+
+    const resolved: ResolvedProvider = {
+      name: providerName,
+      fns: extractFns(filtered)
+    };
+    if (staticProvider.positionalArgs) resolved.positionalArgs = true;
+    resolvedProviders.push(resolved);
+  }
+
+  const typeBlock = typeBlocks.filter(Boolean).join("\n\n");
+  const description = (options.description ?? DEFAULT_DESCRIPTION).replace(
+    "{{types}}",
+    typeBlock
+  );
 
   const def = toolDefinition({
     name: "codemode_execute" as const,
-    description: DEFAULT_DESCRIPTION,
+    description,
     inputSchema: codeSchema
   });
 
   return def.server(async ({ code }) => {
-    const typeBlocks: string[] = [];
-    const resolvedProviders: ResolvedProvider[] = [];
-
-    for (const provider of providers) {
-      const providerName = provider.name ?? "codemode";
-
-      if ("callTool" in provider) {
-        const dynamic = provider as DynamicToolProvider;
-        const types = await resolveProviderTypes(providerName, dynamic.types);
-        if (types) typeBlocks.push(types);
-        const resolved: ResolvedProvider = {
-          name: providerName,
-          fns: {},
-          callTool: dynamic.callTool
-        };
-        if (dynamic.positionalArgs) resolved.positionalArgs = true;
-        resolvedProviders.push(resolved);
-        continue;
-      }
-
-      const staticProvider = provider as StaticToolProvider;
-      const filtered = filterTools(staticProvider.tools);
-      const types =
-        (await resolveProviderTypes(providerName, staticProvider.types)) ??
-        generateTypesFromRecord(filtered, providerName);
-      typeBlocks.push(types);
-
-      const resolved: ResolvedProvider = {
-        name: providerName,
-        fns: extractFns(filtered)
-      };
-      if (staticProvider.positionalArgs) resolved.positionalArgs = true;
-      resolvedProviders.push(resolved);
-    }
-
-    const typeBlock = typeBlocks.filter(Boolean).join("\n\n");
-    void (options.description ?? DEFAULT_DESCRIPTION).replace(
-      "{{types}}",
-      typeBlock
-    );
-
     const normalizedCode = normalizeCode(code);
     const executeResult = await options.executor.execute(
       normalizedCode,
@@ -297,12 +290,8 @@ function generateTypesFromRecord(
     );
   }
 
-  const namespaceRoot = insertDeclTree(
-    rootTree,
-    namespacePath.slice(1),
-    declTree
-  );
-  const availableTools = `\ndeclare const ${namespacePath[0]}: {${countDeclNodes(namespaceRoot) ? `\n${emitDeclTree(namespaceRoot)}\n` : ""}}`;
+  insertDeclTree(rootTree, namespacePath.slice(1), declTree);
+  const availableTools = `\ndeclare const ${namespacePath[0]}: {${countDeclNodes(rootTree) ? `\n${emitDeclTree(rootTree)}\n` : ""}}`;
 
   return `
 ${availableTypes}

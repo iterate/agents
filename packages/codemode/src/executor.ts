@@ -11,10 +11,7 @@ import { sanitizeToolPath } from "./utils";
 import type { ToolDescriptors } from "./tool-types";
 import type { ToolSet } from "ai";
 
-export type ToolProviderTypes =
-  | string
-  | (() => string | Promise<string>)
-  | Promise<string>;
+export type ToolProviderTypes = string;
 
 export interface ExecuteResult {
   result: unknown;
@@ -313,14 +310,13 @@ export class DynamicWorkerExecutor implements Executor {
         })
       ];
       const assignTarget = providerKey;
-      const argsExpr = p.positionalArgs ? "args" : "args";
       return [
         ...setupLines,
         `    ${assignTarget} = (() => {`,
         `      const make = (path = []) => new Proxy(async () => {}, {`,
         `        get: (_, key) => typeof key === "string" ? (key === "$call" ? make(path) : make([...path, key])) : undefined,`,
         `        apply: async (_, __, args) => {`,
-        `          const resJson = await __dispatchers[${JSON.stringify(providerKey)}].call(path.join("."), JSON.stringify(${argsExpr}));`,
+        `          const resJson = await __dispatchers[${JSON.stringify(providerKey)}].call(path.join("."), JSON.stringify(args));`,
         `          const data = JSON.parse(resJson);`,
         `          if (data.error) throw new Error(data.error);`,
         `          return data.result;`,

@@ -263,12 +263,8 @@ export function generateTypes(
     }
   }
 
-  const namespaceRoot = insertDeclTree(
-    rootTree,
-    namespacePath.slice(1),
-    declTree
-  );
-  const availableTools = `\ndeclare const ${namespacePath[0]}: {${countDeclNodes(namespaceRoot) ? `\n${emitDeclTree(namespaceRoot)}\n` : ""}}`;
+  insertDeclTree(rootTree, namespacePath.slice(1), declTree);
+  const availableTools = `\ndeclare const ${namespacePath[0]}: {${countDeclNodes(rootTree) ? `\n${emitDeclTree(rootTree)}\n` : ""}}`;
 
   return `
 ${availableTypes}

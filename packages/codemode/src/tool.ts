@@ -16,8 +16,7 @@ import {
   type CreateCodeToolOptions,
   type CodeInput,
   type CodeOutput,
-  normalizeProviders,
-  resolveProviderTypes
+  normalizeProviders
 } from "./shared";
 export type { CreateCodeToolOptions, CodeInput, CodeOutput } from "./shared";
 export { DEFAULT_DESCRIPTION, normalizeProviders } from "./shared";
@@ -105,51 +104,47 @@ export function createCodeTool(
 ): Tool<CodeInput, CodeOutput> {
   const providers = normalizeProviders(options.tools);
 
+  const typeBlocks: string[] = [];
+  const resolvedProviders: ResolvedProvider[] = [];
+
+  for (const provider of providers) {
+    const name = provider.name ?? "codemode";
+
+    if ("callTool" in provider) {
+      const dynamic = provider as DynamicToolProvider;
+      const types = dynamic.types;
+      if (types) typeBlocks.push(types);
+      const resolved: ResolvedProvider = {
+        name,
+        fns: {},
+        callTool: dynamic.callTool
+      };
+      if (dynamic.positionalArgs) resolved.positionalArgs = true;
+      resolvedProviders.push(resolved);
+      continue;
+    }
+
+    const staticProvider = provider as StaticToolProvider;
+    const filtered = filterTools(staticProvider.tools);
+    const types =
+      staticProvider.types ?? generateTypes(filtered as ToolDescriptors, name);
+    typeBlocks.push(types);
+    const resolved: ResolvedProvider = { name, fns: extractFns(filtered) };
+    if (staticProvider.positionalArgs) resolved.positionalArgs = true;
+    resolvedProviders.push(resolved);
+  }
+
+  const typeBlock = typeBlocks.filter(Boolean).join("\n\n");
+  const executor = options.executor;
+  const description = (options.description ?? DEFAULT_DESCRIPTION).replace(
+    "{{types}}",
+    typeBlock
+  );
+
   return tool({
-    description: DEFAULT_DESCRIPTION,
+    description,
     inputSchema: codeSchema,
     execute: async ({ code }) => {
-      // Prompt material is assembled lazily here rather than up front so
-      // dynamic providers can defer expensive remote documentation fetches
-      // until the codemode tool is actually invoked by the model.
-      const typeBlocks: string[] = [];
-      const resolvedProviders: ResolvedProvider[] = [];
-
-      for (const provider of providers) {
-        const name = provider.name ?? "codemode";
-
-        if ("callTool" in provider) {
-          const dynamic = provider as DynamicToolProvider;
-          const types = await resolveProviderTypes(name, dynamic.types);
-          if (types) typeBlocks.push(types);
-          const resolved: ResolvedProvider = {
-            name,
-            fns: {},
-            callTool: dynamic.callTool
-          };
-          if (dynamic.positionalArgs) resolved.positionalArgs = true;
-          resolvedProviders.push(resolved);
-          continue;
-        }
-
-        const staticProvider = provider as StaticToolProvider;
-        const filtered = filterTools(staticProvider.tools);
-        const types =
-          (await resolveProviderTypes(name, staticProvider.types)) ??
-          generateTypes(filtered as ToolDescriptors, name);
-        typeBlocks.push(types);
-        const resolved: ResolvedProvider = { name, fns: extractFns(filtered) };
-        if (staticProvider.positionalArgs) resolved.positionalArgs = true;
-        resolvedProviders.push(resolved);
-      }
-
-      const typeBlock = typeBlocks.filter(Boolean).join("\n\n");
-      void (options.description ?? DEFAULT_DESCRIPTION).replace(
-        "{{types}}",
-        typeBlock
-      );
-
-      const executor = options.executor;
       const normalizedCode = normalizeCode(code);
 
       const executeResult = await executor.execute(

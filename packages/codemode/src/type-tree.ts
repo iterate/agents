@@ -22,7 +22,7 @@ export function insertDeclTree(
   target: DeclNode,
   path: string[],
   tree: DeclNode
-) {
+): DeclNode {
   if (path.length === 0) {
     if (tree.self) target.self = tree.self;
     for (const [key, child] of tree.children.entries()) {
@@ -46,7 +46,7 @@ export function insertDeclTree(
     current.children.set(key, child);
   }
 
-  return path.length ? current : target;
+  return target;
 }
 
 export function insertDecl(

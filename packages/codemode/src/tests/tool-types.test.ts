@@ -167,10 +167,12 @@ describe("generateTypes edge cases", () => {
         "type DoItOutput = string",
         "",
         "declare const mcp: {",
-        "\t/**",
-        "\t * Do it",
-        "\t */",
-        "\tdoIt: (input: DoItInput) => Promise<DoItOutput>;",
+        "\tsomeServer: {",
+        "\t\t/**",
+        "\t\t * Do it",
+        "\t\t */",
+        "\t\tdoIt: (input: DoItInput) => Promise<DoItOutput>;",
+        "\t};",
         "}"
       ].join("\n")
     );
