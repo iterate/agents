@@ -178,6 +178,12 @@ describe("generateTypes edge cases", () => {
     );
   });
 
+  it("should not crash for empty dotted provider namespaces", () => {
+    expect(generateTypes({}, "mcp.someServer")).toBe(
+      ["declare const mcp: {}"].join("\n")
+    );
+  });
+
   it("should preserve both flat and dotted declarations when names conflict by prefix", () => {
     const result = genTypes({
       files: { description: "Flat files tool", inputSchema: null },

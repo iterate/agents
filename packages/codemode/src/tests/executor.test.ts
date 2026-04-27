@@ -145,6 +145,32 @@ describe("DynamicWorkerExecutor", () => {
     expect(callTool).toHaveBeenCalledWith("foo.bar.baz", [1, 2]);
   });
 
+  it("should reject provider namespaces that conflict by prefix", async () => {
+    const executor = new DynamicWorkerExecutor({ loader: env.LOADER });
+
+    const result = await executor.execute("async () => null", [
+      {
+        name: "mcp",
+        fns: {
+          list: async () => []
+        }
+      },
+      {
+        name: "mcp.someServer",
+        fns: {
+          ping: async () => "pong"
+        }
+      }
+    ]);
+
+    expect(result.error).toContain(
+      'Provider name "mcp.someServer" conflicts with "mcp"'
+    );
+    expect(result.error).toContain(
+      "more oRPC-like provider tree / client model"
+    );
+  });
+
   it("should handle multiple sequential tool calls", async () => {
     const getWeather = vi.fn(async () => ({ temp: 72 }));
     const searchWeb = vi.fn(async (...args: unknown[]) => {

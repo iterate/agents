@@ -293,6 +293,24 @@ export class DynamicWorkerExecutor implements Executor {
           error: `Duplicate provider name "${provider.name}"`
         };
       }
+
+      for (const existing of seenNames) {
+        if (
+          providerKey.startsWith(`${existing}.`) ||
+          existing.startsWith(`${providerKey}.`)
+        ) {
+          return {
+            result: undefined,
+            error:
+              `Provider name "${provider.name}" conflicts with "${existing}". ` +
+              "This provider-construction API cannot safely mix a provider path " +
+              "with one of its own prefixes. For now, choose disjoint namespaces. " +
+              "Longer-term we should likely replace this with a more oRPC-like " +
+              "provider tree / client model rather than stretching the current flat provider shape."
+          };
+        }
+      }
+
       seenNames.add(providerKey);
       providerPaths.set(provider.name, pathParts);
     }
