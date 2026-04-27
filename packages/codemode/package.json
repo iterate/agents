@@ -77,7 +77,7 @@
   "scripts": {
     "build": "tsx ./scripts/build.ts",
     "build:standalone": "tsx ./scripts/build.ts --tsconfig ./tsconfig.standalone.json",
-    "prepare": "pnpm build:standalone",
+    "prepare": "npm run build:standalone",
     "test": "vitest run",
     "test:e2e": "npx playwright test --config e2e/playwright.config.ts",
     "test:watch": "vitest"
