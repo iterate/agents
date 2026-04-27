@@ -1,6 +1,5 @@
 import type { JSONSchema7, JSONSchema7Definition } from "json-schema";
 import {
-  sanitizeToolName,
   sanitizeToolPath,
   toPascalCase,
   escapeJsDoc,
@@ -11,7 +10,8 @@ import {
   countDeclNodes,
   createDeclTree,
   emitDeclTree,
-  insertDecl
+  insertDecl,
+  insertDeclTree
 } from "./type-tree";
 
 export interface ConversionContext {
@@ -346,6 +346,7 @@ export function generateTypesFromJsonSchema(
   // We keep a tree first so flat names like "files" can also coexist with
   // dotted descendants like "files.read" in the emitted types.
   const declTree = createDeclTree();
+  const rootTree = createDeclTree();
   let availableTypes = "";
 
   for (const [toolName, tool] of Object.entries(tools)) {
@@ -404,7 +405,9 @@ export function generateTypesFromJsonSchema(
     }
   }
 
-  const availableTools = `\ndeclare const codemode: {${countDeclNodes(declTree) ? `\n${emitDeclTree(declTree)}\n` : ""}}`;
+  insertDeclTree(rootTree, [], declTree);
+
+  const availableTools = `\ndeclare const codemode: {${countDeclNodes(rootTree) ? `\n${emitDeclTree(rootTree)}\n` : ""}}`;
 
   return `
 ${availableTypes}
