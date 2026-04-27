@@ -18,6 +18,37 @@ export function countDeclNodes(tree: DeclNode): number {
   return count;
 }
 
+export function insertDeclTree(
+  target: DeclNode,
+  path: string[],
+  tree: DeclNode
+) {
+  if (path.length === 0) {
+    if (tree.self) target.self = tree.self;
+    for (const [key, child] of tree.children.entries()) {
+      target.children.set(key, child);
+    }
+    return target;
+  }
+
+  let current = target;
+  for (const part of path) {
+    let child = current.children.get(part);
+    if (!child) {
+      child = { children: new Map() };
+      current.children.set(part, child);
+    }
+    current = child;
+  }
+
+  if (tree.self) current.self = tree.self;
+  for (const [key, child] of tree.children.entries()) {
+    current.children.set(key, child);
+  }
+
+  return path.length ? current : target;
+}
+
 export function insertDecl(
   tree: DeclNode,
   path: string[],

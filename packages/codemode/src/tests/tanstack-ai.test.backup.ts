@@ -303,7 +303,7 @@ describe("tanstackTools", () => {
   it("should handle empty tools array", () => {
     const provider = tanstackTools([]);
 
-    expect(Object.keys(provider.tools)).toEqual([]);
+    expect(provider.tools ? Object.keys(provider.tools) : []).toEqual([]);
   });
 });
 

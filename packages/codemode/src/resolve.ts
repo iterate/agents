@@ -10,7 +10,9 @@
 import type {
   ToolProvider,
   ToolProviderTools,
-  ResolvedProvider
+  ResolvedProvider,
+  DynamicToolProvider,
+  StaticToolProvider
 } from "./executor";
 
 function hasNeedsApproval(t: Record<string, unknown>): boolean {
@@ -62,7 +64,22 @@ export function extractFns(
  */
 export function resolveProvider(provider: ToolProvider): ResolvedProvider {
   const name = provider.name ?? "codemode";
-  const filtered = filterTools(provider.tools);
+
+  // Dynamic providers deliberately skip up-front enumeration. Their runtime
+  // contract is "forward any attempted dotted path below this namespace to my
+  // callTool hook".
+  if ("callTool" in provider) {
+    const dynamic = provider as DynamicToolProvider;
+    const resolved: ResolvedProvider = {
+      name,
+      fns: {},
+      callTool: dynamic.callTool
+    };
+    if (dynamic.positionalArgs) resolved.positionalArgs = true;
+    return resolved;
+  }
+
+  const filtered = filterTools((provider as StaticToolProvider).tools);
   const resolved: ResolvedProvider = { name, fns: extractFns(filtered) };
   if (provider.positionalArgs) resolved.positionalArgs = true;
   return resolved;

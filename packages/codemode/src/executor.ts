@@ -11,6 +11,11 @@ import { sanitizeToolPath } from "./utils";
 import type { ToolDescriptors } from "./tool-types";
 import type { ToolSet } from "ai";
 
+export type ToolProviderTypes =
+  | string
+  | (() => string | Promise<string>)
+  | Promise<string>;
+
 export interface ExecuteResult {
   result: unknown;
   error?: string;
@@ -53,15 +58,21 @@ export type ToolProviderTools = ToolDescriptors | ToolSet | SimpleToolRecord;
  * // sandbox: github.listIssues(), shell.exec(), codemode.search()
  * ```
  */
-export interface ToolProvider {
+export interface StaticToolProvider {
   /** Namespace prefix in the sandbox (e.g. "state", "mcp"). Defaults to "codemode". */
   name?: string;
 
   /** Tools exposed as `namespace.toolName()` in the sandbox. */
   tools: ToolProviderTools;
 
-  /** Type declarations for the LLM. Auto-generated from `tools` if omitted. */
-  types?: string;
+  /**
+   * Model-facing provider documentation inserted into the codemode prompt.
+   *
+   * The field name is historical: codemode does not typecheck this content.
+   * It may contain declaration-like snippets, prose documentation, examples,
+   * or other guidance for the LLM.
+   */
+  types?: ToolProviderTypes;
 
   /**
    * When true, tools accept positional args instead of a single object arg.
@@ -73,6 +84,25 @@ export interface ToolProvider {
   positionalArgs?: boolean;
 }
 
+/**
+ * Dynamic providers trade ahead-of-time tool enumeration for a single runtime
+ * hook that receives any attempted dotted subpath under the provider namespace.
+ *
+ * This is the explicit "trust me, try it at runtime" escape hatch. If sandbox
+ * code evaluates `mcp.someServer.foo.bar(1, 2)`, codemode forwards
+ * `"foo.bar"` and `[1, 2]` to `callTool()` and lets the provider decide
+ * whether that path is meaningful.
+ */
+export interface DynamicToolProvider {
+  name?: string;
+  callTool: (name: string, args: unknown[]) => Promise<unknown>;
+  types?: ToolProviderTypes;
+  positionalArgs?: boolean;
+  tools?: never;
+}
+
+export type ToolProvider = StaticToolProvider | DynamicToolProvider;
+
 // ── ResolvedProvider ──────────────────────────────────────────────────
 
 /**
@@ -82,6 +112,7 @@ export interface ToolProvider {
 export interface ResolvedProvider {
   name: string;
   fns: Record<string, (...args: unknown[]) => Promise<unknown>>;
+  callTool?: (name: string, args: unknown[]) => Promise<unknown>;
   positionalArgs?: boolean;
 }
 
@@ -117,30 +148,44 @@ export interface Executor {
 export class ToolDispatcher extends RpcTarget {
   #fns: Record<string, (...args: unknown[]) => Promise<unknown>>;
   #positionalArgs: boolean;
+  #callTool?: (name: string, args: unknown[]) => Promise<unknown>;
 
   constructor(
     fns: Record<string, (...args: unknown[]) => Promise<unknown>>,
-    positionalArgs = false
+    positionalArgs = false,
+    callTool?: (name: string, args: unknown[]) => Promise<unknown>
   ) {
     super();
     this.#fns = fns;
     this.#positionalArgs = positionalArgs;
+    this.#callTool = callTool;
   }
 
   async call(name: string, argsJson: string): Promise<string> {
-    const fn = this.#fns[name];
-    if (!fn) {
-      return JSON.stringify({ error: `Tool "${name}" not found` });
-    }
     try {
-      if (this.#positionalArgs) {
-        const args = argsJson ? JSON.parse(argsJson) : [];
-        const result = await fn(...(Array.isArray(args) ? args : [args]));
+      const parsed = argsJson ? JSON.parse(argsJson) : [];
+      const args = Array.isArray(parsed) ? parsed : [parsed];
+
+      const fn = this.#fns[name];
+      if (fn) {
+        if (this.#positionalArgs) {
+          const result = await fn(...args);
+          return JSON.stringify({ result });
+        }
+        const result = await fn(args[0] ?? {});
         return JSON.stringify({ result });
       }
-      const args = argsJson ? JSON.parse(argsJson) : {};
-      const result = await fn(args);
-      return JSON.stringify({ result });
+
+      // Dynamic providers intentionally do not predeclare their full tool
+      // surface. When a static match is missing, we give the provider-level
+      // hook the exact dotted path the sandbox attempted and let the remote side
+      // decide whether it is meaningful.
+      if (this.#callTool) {
+        const result = await this.#callTool(name, args);
+        return JSON.stringify({ result });
+      }
+
+      return JSON.stringify({ error: `Tool "${name}" not found` });
     } catch (err) {
       return JSON.stringify({
         error: err instanceof Error ? err.message : String(err)
@@ -226,64 +271,64 @@ export class DynamicWorkerExecutor implements Executor {
     const normalized = normalizeCode(code);
     const timeoutMs = this.#timeout;
 
-    // Validate provider names.
+    // Provider names are no longer limited to a single identifier. A provider
+    // path like `mcp.someServer` should become nested objects in the sandbox,
+    // and each segment must remain stable across prompt generation, proxy
+    // creation, and dispatcher lookup.
     const RESERVED_NAMES = new Set(["__dispatchers", "__logs"]);
-    const VALID_IDENT = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/;
     const seenNames = new Set<string>();
+    const providerPaths = new Map<string, string[]>();
     for (const provider of providers) {
-      if (RESERVED_NAMES.has(provider.name)) {
-        return {
-          result: undefined,
-          error: `Provider name "${provider.name}" is reserved`
-        };
+      const safePath = sanitizeToolPath(provider.name);
+      const pathParts = safePath.split(".");
+      for (const part of pathParts) {
+        if (RESERVED_NAMES.has(part)) {
+          return {
+            result: undefined,
+            error: `Provider name segment "${part}" is reserved`
+          };
+        }
       }
-      if (!VALID_IDENT.test(provider.name)) {
-        return {
-          result: undefined,
-          error: `Provider name "${provider.name}" is not a valid JavaScript identifier`
-        };
-      }
-      if (seenNames.has(provider.name)) {
+      const providerKey = pathParts.join(".");
+      if (seenNames.has(providerKey)) {
         return {
           result: undefined,
           error: `Duplicate provider name "${provider.name}"`
         };
       }
-      seenNames.add(provider.name);
+      seenNames.add(providerKey);
+      providerPaths.set(provider.name, pathParts);
     }
 
     // Generate a recursive Proxy global for each provider namespace.
     const proxyInits = providers.map((p) => {
-      if (p.positionalArgs) {
-        return (
-          `    const ${p.name} = (() => {\n` +
-          `      const make = (path = []) => new Proxy(async () => {}, {\n` +
-          `        get: (_, key) => typeof key === "string" ? (key === "$call" ? make(path) : make([...path, key])) : undefined,\n` +
-          `        apply: async (_, __, args) => {\n` +
-          `          const resJson = await __dispatchers.${p.name}.call(path.join("."), JSON.stringify(args));\n` +
-          `          const data = JSON.parse(resJson);\n` +
-          `          if (data.error) throw new Error(data.error);\n` +
-          `          return data.result;\n` +
-          `        }\n` +
-          `      });\n` +
-          `      return make();\n` +
-          `    })();`
-        );
-      }
-      return (
-        `    const ${p.name} = (() => {\n` +
-        `      const make = (path = []) => new Proxy(async () => {}, {\n` +
-        `        get: (_, key) => typeof key === "string" ? (key === "$call" ? make(path) : make([...path, key])) : undefined,\n` +
-        `        apply: async (_, __, args) => {\n` +
-        `          const resJson = await __dispatchers.${p.name}.call(path.join("."), JSON.stringify(args[0] ?? {}));\n` +
-        `          const data = JSON.parse(resJson);\n` +
-        `          if (data.error) throw new Error(data.error);\n` +
-        `          return data.result;\n` +
-        `        }\n` +
-        `      });\n` +
-        `      return make();\n` +
+      const pathParts = providerPaths.get(p.name)!;
+      const providerKey = pathParts.join(".");
+      const root = pathParts[0]!;
+      const setupLines = [
+        `    globalThis.${root} ??= {};`,
+        ...pathParts.slice(1, -1).map((_, i) => {
+          const child = pathParts.slice(0, i + 2).join(".");
+          return `    ${child} ??= {};`;
+        })
+      ];
+      const assignTarget = providerKey;
+      const argsExpr = p.positionalArgs ? "args" : "args";
+      return [
+        ...setupLines,
+        `    ${assignTarget} = (() => {`,
+        `      const make = (path = []) => new Proxy(async () => {}, {`,
+        `        get: (_, key) => typeof key === "string" ? (key === "$call" ? make(path) : make([...path, key])) : undefined,`,
+        `        apply: async (_, __, args) => {`,
+        `          const resJson = await __dispatchers[${JSON.stringify(providerKey)}].call(path.join("."), JSON.stringify(${argsExpr}));`,
+        `          const data = JSON.parse(resJson);`,
+        `          if (data.error) throw new Error(data.error);`,
+        `          return data.result;`,
+        `        }`,
+        `      });`,
+        `      return make();`,
         `    })();`
-      );
+      ].join("\n");
     });
 
     const executorModule = [
@@ -324,14 +369,24 @@ export class DynamicWorkerExecutor implements Executor {
     // generators, so executor lookup stays aligned with the emitted paths.
     const dispatchers: Record<string, ToolDispatcher> = {};
     for (const provider of providers) {
+      const providerKey = providerPaths.get(provider.name)!.join(".");
+      if (provider.callTool) {
+        dispatchers[providerKey] = new ToolDispatcher(
+          {},
+          provider.positionalArgs,
+          provider.callTool
+        );
+        continue;
+      }
+
       const sanitizedFns: Record<
         string,
         (...args: unknown[]) => Promise<unknown>
       > = {};
-      for (const [name, fn] of Object.entries(provider.fns)) {
+      for (const [name, fn] of Object.entries(provider.fns ?? {})) {
         sanitizedFns[sanitizeToolPath(name)] = fn;
       }
-      dispatchers[provider.name] = new ToolDispatcher(
+      dispatchers[providerKey] = new ToolDispatcher(
         sanitizedFns,
         provider.positionalArgs
       );
